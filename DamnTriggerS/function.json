@@ -1,15 +1,12 @@
 {
   "bindings": [
     {
-      "authLevel": "function",
+      "authLevel": "anonymous",
       "type": "httpTrigger",
       "direction": "in",
       "name": "Request",
-      "methods": [
-        "get",
-        "post"
-      ],
-      "route": "country-change"
+      "methods": ["post"],
+      "route": "countrychange"
     },
     {
       "type": "http",
