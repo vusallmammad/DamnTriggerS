@@ -1,22 +1,14 @@
 # Azure Functions profile.ps1
 #
-# This profile.ps1 will get executed every "cold start" of your Function App.
-# "cold start" occurs when:
-#
-# * A Function App starts up for the very first time
-# * A Function App starts up after being de-allocated due to inactivity
-#
-# You can define helper functions, run commands, or specify environment variables
-# NOTE: any variables defined that are not environment variables will get reset after the first execution
+# This profile.ps1 file is loaded every time a PowerShell worker process is started.
+# Please log any errors and information to the OUT stream.
 
-# Authenticate with Azure PowerShell using MSI.
-# Remove this if you are not planning on using MSI or Azure PowerShell.
-if ($env:MSI_SECRET) {
-    Disable-AzContextAutosave -Scope Process | Out-Null
-    Connect-AzAccount -Identity
+# Authenticate to Azure
+# This runs once when the function app starts
+try {
+    # Using Managed Identity - recommended for Azure Functions
+    Connect-AzAccount -Identity -ErrorAction SilentlyContinue
+    Write-Information "Successfully connected to Azure using Managed Identity"
+} catch {
+    Write-Error "Failed to connect to Azure: $_"
 }
-
-# Uncomment the next line to enable legacy AzureRm alias in Azure PowerShell.
-# Enable-AzureRmAlias
-
-# You can also define functions or aliases that can be referenced in any of your PowerShell functions.
