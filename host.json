@@ -4,7 +4,7 @@
     "applicationInsights": {
       "samplingSettings": {
         "isEnabled": true,
-        "excludedTypes": "Request"
+        "maxTelemetryItemsPerSecond": 20
       }
     }
   },
@@ -12,6 +12,7 @@
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.*, 5.0.0)"
   },
+  "functionTimeout": "00:05:00",
   "managedDependency": {
     "enabled": true
   }

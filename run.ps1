@@ -24,7 +24,7 @@ if (-not $userPrincipalName -or -not $country) {
     return
 }
 
-# 3) Define country mapping (same as runbook)
+# 3) Define country mapping
 $CountryMap = @{
     "Azerbaijan" = @{ c="AZ"; co="Azerbaijan"; countryCode=31 }
     "Russia"     = @{ c="RU"; co="Russia"; countryCode=643 }
@@ -47,61 +47,65 @@ if (-not $CountryMap.ContainsKey($country)) {
     return
 }
 
-$values = $CountryMap[$country]
-
 try {
-    # 5) Import Active Directory module
-    Import-Module ActiveDirectory -ErrorAction Stop
-    Write-Host "ActiveDirectory module imported successfully"
+    # 5) Get environment variables for Automation Account
+    $resourceGroupName = $env:RESOURCE_GROUP_NAME
+    $automationAccountName = $env:AUTOMATION_ACCOUNT_NAME
+    $runbookName = $env:RUNBOOK_NAME
+    $hybridWorkerGroupName = $env:HYBRID_WORKER_GROUP_NAME
     
-    # 6) Find AD user
-    $user = Get-ADUser -Filter "UserPrincipalName -eq '$userPrincipalName'" `
-                       -Properties c, co, countryCode `
-                       -ErrorAction Stop
+    if (-not $resourceGroupName -or -not $automationAccountName -or -not $runbookName) {
+        throw "Missing environment variables: RESOURCE_GROUP_NAME, AUTOMATION_ACCOUNT_NAME, or RUNBOOK_NAME"
+    }
+
+    Write-Host "Triggering runbook: $runbookName on Hybrid Worker Group: $hybridWorkerGroupName"
     
-    if (-not $user) {
-        throw "User not found with UPN: $userPrincipalName"
+    # 6) Start the runbook on Hybrid Runbook Worker
+    $runbookParams = @{
+        UserPrincipalName = $userPrincipalName
+        Country = $country
     }
     
-    Write-Host "Found user: $($user.Name)"
+    $runbookJob = Start-AzAutomationRunbook -ResourceGroupName $resourceGroupName `
+                                            -AutomationAccountName $automationAccountName `
+                                            -Name $runbookName `
+                                            -Parameters $runbookParams `
+                                            -RunOn $hybridWorkerGroupName
     
-    # 7) Update AD user attributes
-    Set-ADUser -Identity $user.DistinguishedName `
-               -Replace @{
-                   c = $values.c
-                   co = $values.co
-                   countryCode = $values.countryCode
-               } `
-               -ErrorAction Stop
+    Write-Host "Runbook job created with ID: $($runbookJob.JobId)"
     
-    Write-Host "Successfully updated AD user attributes for: $userPrincipalName"
+    # 7) Wait for job completion (optional - set timeout)
+    $timeout = 0
+    $maxTimeout = 300  # 5 minutes
     
-    # 8) Trigger delta sync if available
-    $syncStatus = "not_available"
-    if (Get-Command Start-ADSyncSyncCycle -ErrorAction SilentlyContinue) {
-        try {
-            Start-ADSyncSyncCycle -PolicyType Delta | Out-Null
-            Write-Host "Delta sync cycle triggered successfully"
-            $syncStatus = "delta"
-        }
-        catch {
-            Write-Warning "Error triggering delta sync: $_"
-            $syncStatus = "error"
-        }
+    while ($runbookJob.RuntimeJobStatus -eq "Running" -and $timeout -lt $maxTimeout) {
+        Start-Sleep -Seconds 2
+        $runbookJob = Get-AzAutomationJob -ResourceGroupName $resourceGroupName `
+                                          -AutomationAccountName $automationAccountName `
+                                          -Id $runbookJob.JobId
+        $timeout += 2
     }
     
-    # 9) Return success response
-    $statusCode = [HttpStatusCode]::OK
-    $body = @{
-        message = "Country updated successfully"
-        success = $true
-        upn = $userPrincipalName
-        country = $country
-        countryCode = $values.c
-        countryCodeNumeric = $values.countryCode
-        sync = $syncStatus
-        timestamp = (Get-Date).ToUniversalTime()
-    } | ConvertTo-Json
+    # 8) Get job output
+    $jobOutput = Get-AzAutomationJobOutput -ResourceGroupName $resourceGroupName `
+                                           -AutomationAccountName $automationAccountName `
+                                           -Id $runbookJob.JobId -Stream Output
+    
+    if ($runbookJob.RuntimeJobStatus -eq "Completed") {
+        $statusCode = [HttpStatusCode]::OK
+        $body = @{
+            message = "Country updated successfully"
+            success = $true
+            upn = $userPrincipalName
+            country = $country
+            jobId = $runbookJob.JobId
+            jobStatus = $runbookJob.RuntimeJobStatus
+            timestamp = (Get-Date).ToUniversalTime()
+        } | ConvertTo-Json
+    }
+    else {
+        throw "Runbook job failed with status: $($runbookJob.RuntimeJobStatus)"
+    }
 }
 catch {
     Write-Error "Error processing request: $_"
@@ -114,7 +118,7 @@ catch {
     } | ConvertTo-Json
 }
 
-# 10) Return response
+# 9) Return response
 Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
     StatusCode = $statusCode
     Body       = $body
