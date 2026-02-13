@@ -8,7 +8,8 @@
       "methods": [
         "get",
         "post"
-      ]
+      ],
+      "route": "country-change"
     },
     {
       "type": "http",
